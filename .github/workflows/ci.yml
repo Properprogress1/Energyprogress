@@ -18,12 +18,12 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: nightly
+          version: v1.8.3
 
-      - name: Set up Foundry submodules
+      - name: Install OpenZeppelin
         run: |
           cd contracts
-          forge install OpenZeppelin/openzeppelin-contracts
+          forge install OpenZeppelin/openzeppelin-contracts@rev=9a0211903755a2d0e342a64738f9c5b88ced8637 --no-git
 
       - name: Run Forge Build
         run: |
