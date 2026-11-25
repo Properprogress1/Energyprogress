@@ -1,5 +1,4 @@
-import { http, createConfig } from 'wagmi'
-import { injected } from 'wagmi/connectors'
+import { http, createConfig, injected } from 'wagmi'
 
 // Local Anvil chain configuration
 const localhost = {
