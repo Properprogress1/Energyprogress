@@ -53,42 +53,19 @@ interface IChargingNetwork {
         EnergySource energySource
     );
 
-    event StationUpdated(
-        uint256 indexed stationId,
-        uint256 pricePerKwh,
-        bool available
-    );
+    event StationUpdated(uint256 indexed stationId, uint256 pricePerKwh, bool available);
 
     event StationDeactivated(uint256 indexed stationId);
 
-    event SessionStarted(
-        uint256 indexed sessionId,
-        uint256 indexed stationId,
-        address indexed user
-    );
+    event SessionStarted(uint256 indexed sessionId, uint256 indexed stationId, address indexed user);
 
-    event EnergyConsumed(
-        uint256 indexed sessionId,
-        uint256 energyConsumed
-    );
+    event EnergyConsumed(uint256 indexed sessionId, uint256 energyConsumed);
 
-    event SessionCompleted(
-        uint256 indexed sessionId,
-        uint256 totalEnergy,
-        uint256 totalCost
-    );
+    event SessionCompleted(uint256 indexed sessionId, uint256 totalEnergy, uint256 totalCost);
 
-    event SessionPaid(
-        uint256 indexed sessionId,
-        address indexed user,
-        uint256 amount
-    );
+    event SessionPaid(uint256 indexed sessionId, address indexed user, uint256 amount);
 
-    event SessionSettled(
-        uint256 indexed sessionId,
-        address indexed operator,
-        uint256 amount
-    );
+    event SessionSettled(uint256 indexed sessionId, address indexed operator, uint256 amount);
 
     event OperatorAuthorized(address indexed operator);
     event OperatorRevoked(address indexed operator);
@@ -105,11 +82,7 @@ interface IChargingNetwork {
         address paymentToken
     ) external returns (uint256);
 
-    function updateStation(
-        uint256 stationId,
-        uint256 pricePerKwh,
-        bool available
-    ) external;
+    function updateStation(uint256 stationId, uint256 pricePerKwh, bool available) external;
 
     function deactivateStation(uint256 stationId) external;
 

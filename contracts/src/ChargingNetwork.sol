@@ -13,27 +13,24 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
     // State variables
     uint256 private nextStationId;
     uint256 private nextSessionId;
-    
+
     mapping(uint256 => Station) public stations;
     mapping(uint256 => Session) public sessions;
     mapping(address => uint256[]) public userSessions;
     mapping(uint256 => uint256[]) public stationSessions;
     mapping(address => uint256) public operatorBalances;
-    
+
     mapping(uint256 => address) public stationOperators;
     mapping(address => bool) public authorizedOperators;
-    
+
     uint256 public constant LATITUDE_SCALE = 1e6;
     uint256 public constant LONGITUDE_SCALE = 1e6;
     uint256 public constant ENERGY_SCALE = 1e18;
     uint256 public constant PRICE_SCALE = 1e18;
-    
+
     // Modifiers
     modifier onlyStationOperator(uint256 stationId) {
-        require(
-            stationOperators[stationId] == msg.sender,
-            "Not station operator"
-        );
+        require(stationOperators[stationId] == msg.sender, "Not station operator");
         _;
     }
 
@@ -48,18 +45,12 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
     }
 
     modifier sessionState(uint256 sessionId, SessionState expectedState) {
-        require(
-            sessions[sessionId].state == expectedState,
-            "Invalid session state"
-        );
+        require(sessions[sessionId].state == expectedState, "Invalid session state");
         _;
     }
 
     modifier onlySessionUser(uint256 sessionId) {
-        require(
-            sessions[sessionId].user == msg.sender,
-            "Not session user"
-        );
+        require(sessions[sessionId].user == msg.sender, "Not session user");
         _;
     }
 
@@ -94,23 +85,18 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
         require(pricePerKwh > 0, "Price must be positive");
         require(maxChargingRate > 0, "Max charging rate must be positive");
         require(paymentToken != address(0), "Invalid payment token");
-        
+
         // Validate coordinates (simplified - production would use proper geospatial validation)
         // casting to 'int256' is safe because LATITUDE_SCALE and LONGITUDE_SCALE are constants (1e6)
         // and the multiplication won't overflow given the ranges being checked
+        require(latitude >= -90 * int256(LATITUDE_SCALE) && latitude <= 90 * int256(LATITUDE_SCALE), "Invalid latitude");
         require(
-            latitude >= -90 * int256(LATITUDE_SCALE) && 
-            latitude <= 90 * int256(LATITUDE_SCALE),
-            "Invalid latitude"
-        );
-        require(
-            longitude >= -180 * int256(LONGITUDE_SCALE) && 
-            longitude < 180 * int256(LONGITUDE_SCALE),
+            longitude >= -180 * int256(LONGITUDE_SCALE) && longitude < 180 * int256(LONGITUDE_SCALE),
             "Invalid longitude"
         );
 
         uint256 stationId = nextStationId++;
-        
+
         stations[stationId] = Station({
             id: stationId,
             operator: msg.sender,
@@ -129,22 +115,15 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
 
         emit StationOperatorAssigned(stationId, msg.sender);
 
-        emit StationRegistered(
-            stationId,
-            msg.sender,
-            latitude,
-            longitude,
-            energySource
-        );
+        emit StationRegistered(stationId, msg.sender, latitude, longitude, energySource);
 
         return stationId;
     }
 
-    function updateStation(
-        uint256 stationId,
-        uint256 pricePerKwh,
-        bool available
-    ) external onlyStationOperator(stationId) {
+    function updateStation(uint256 stationId, uint256 pricePerKwh, bool available)
+        external
+        onlyStationOperator(stationId)
+    {
         require(stations[stationId].active, "Station not active");
         require(pricePerKwh > 0, "Price must be positive");
 
@@ -156,7 +135,7 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
 
     function deactivateStation(uint256 stationId) external onlyStationOperator(stationId) {
         require(stations[stationId].active, "Station already inactive");
-        
+
         stations[stationId].active = false;
         stations[stationId].available = false;
 
@@ -212,7 +191,7 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
     function startSession(uint256 stationId) external returns (uint256) {
         require(isValidStation(stationId), "Invalid station");
         require(isStationAvailable(stationId), "Station not available");
-        
+
         // Check if station already has an active session (single-session capacity)
         uint256[] storage stationSessionIds = stationSessions[stationId];
         bool stationInUse = false;
@@ -246,30 +225,30 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
         return sessionId;
     }
 
-    function recordEnergyConsumption(uint256 sessionId, uint256 energy) 
-        external 
+    function recordEnergyConsumption(uint256 sessionId, uint256 energy)
+        external
         sessionExists(sessionId)
         sessionState(sessionId, SessionState.Active)
         onlySessionUser(sessionId)
     {
         require(energy > 0, "Energy must be positive");
-        
+
         sessions[sessionId].energyConsumed += energy;
 
         emit EnergyConsumed(sessionId, sessions[sessionId].energyConsumed);
     }
 
-    function completeSession(uint256 sessionId) 
-        external 
+    function completeSession(uint256 sessionId)
+        external
         sessionExists(sessionId)
         sessionState(sessionId, SessionState.Active)
         onlySessionUser(sessionId)
     {
         Session storage session = sessions[sessionId];
-        
+
         session.state = SessionState.Completed;
         session.endTime = block.timestamp;
-        
+
         // Calculate total cost
         Station memory station = stations[session.stationId];
         session.totalCost = (session.energyConsumed * station.pricePerKwh) / ENERGY_SCALE;
@@ -277,9 +256,9 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
         emit SessionCompleted(sessionId, session.energyConsumed, session.totalCost);
     }
 
-    function paySession(uint256 sessionId) 
-        external 
-        payable 
+    function paySession(uint256 sessionId)
+        external
+        payable
         nonReentrant
         sessionExists(sessionId)
         sessionState(sessionId, SessionState.Completed)
@@ -287,7 +266,7 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
     {
         Session storage session = sessions[sessionId];
         require(!session.paid, "Session already paid");
-        
+
         Station memory station = stations[session.stationId];
         IERC20 paymentToken = IERC20(station.paymentToken);
 
@@ -297,13 +276,13 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
         paymentToken.safeTransferFrom(msg.sender, address(this), session.totalCost);
 
         session.paid = true;
-        
+
         // Credit operator balance
         operatorBalances[station.operator] += session.totalCost;
     }
 
-    function settleSession(uint256 sessionId) 
-        external 
+    function settleSession(uint256 sessionId)
+        external
         sessionExists(sessionId)
         sessionState(sessionId, SessionState.Completed)
     {
@@ -324,7 +303,7 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
     function getUserSessions(address user) external view override returns (Session[] memory) {
         uint256[] memory sessionIds = userSessions[user];
         Session[] memory userSessionData = new Session[](sessionIds.length);
-        
+
         for (uint256 i = 0; i < sessionIds.length; i++) {
             userSessionData[i] = sessions[sessionIds[i]];
         }
@@ -335,7 +314,7 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
     function getStationSessions(uint256 stationId) external view override returns (Session[] memory) {
         uint256[] memory sessionIds = stationSessions[stationId];
         Session[] memory stationSessionData = new Session[](sessionIds.length);
-        
+
         for (uint256 i = 0; i < sessionIds.length; i++) {
             stationSessionData[i] = sessions[sessionIds[i]];
         }
@@ -348,17 +327,14 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
         return operatorBalances[operator];
     }
 
-    function withdrawOperatorBalance(address operator, uint256 amount) 
-        external 
-        nonReentrant
-    {
+    function withdrawOperatorBalance(address operator, uint256 amount) external nonReentrant {
         require(msg.sender == operator || msg.sender == owner(), "Unauthorized");
         require(operatorBalances[operator] >= amount, "Insufficient balance");
-        
+
         operatorBalances[operator] -= amount;
-        
+
         address paymentToken = address(0);
-        
+
         // Find operator's payment token (simplified - assumes all stations use same token)
         for (uint256 i = 1; i < nextStationId; i++) {
             if (stations[i].operator == operator && stations[i].id != 0) {
@@ -366,9 +342,9 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
                 break;
             }
         }
-        
+
         require(paymentToken != address(0), "No payment token found");
-        
+
         IERC20(paymentToken).safeTransfer(operator, amount);
     }
 
@@ -378,8 +354,6 @@ contract ChargingNetwork is IChargingNetwork, Ownable, ReentrancyGuard {
     }
 
     function isStationAvailable(uint256 stationId) public view override returns (bool) {
-        return stations[stationId].id != 0 && 
-               stations[stationId].active && 
-               stations[stationId].available;
+        return stations[stationId].id != 0 && stations[stationId].active && stations[stationId].available;
     }
 }
