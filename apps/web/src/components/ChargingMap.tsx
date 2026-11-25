@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, CircleMarker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { LocalBlockchainDemo } from './LocalBlockchainDemo'
 import { UrbanPlanningAnalysis } from './UrbanPlanningAnalysis'
+import { SiteShortlist } from './SiteShortlist'
+import { readSavedSites, SITE_STORAGE_KEY, type ProposedSite } from '../lib/siteShortlist'
 import { calculateDistance, identifyCoverageGaps, COVERAGE_RADIUS_KM } from '../lib/coverage'
 
 const stationIcon = L.icon({
@@ -145,13 +147,48 @@ export function ChargingMap() {
   const [selectedStation, setSelectedStation] = useState<ChargingStation | null>(null)
   const [activeSession, setActiveSession] = useState<ChargingSession | null>(null)
   const [energyConsumed, setEnergyConsumed] = useState(0)
-  const [proposedSites, setProposedSites] = useState<Coordinates[]>([])
+  const [sitesByCity, setSitesByCity] = useState(readSavedSites)
+  const latestSites = useRef(sitesByCity)
+  const [storageError, setStorageError] = useState(false)
+  const proposedSites = sitesByCity[name] ?? []
   const [pickingSite, setPickingSite] = useState(false)
   const baselineGaps = identifyCoverageGaps(stations, centre).length
 
-  function addProposedSite(point: Coordinates) {
-    setProposedSites(sites => sites.length < MAX_PROPOSED_SITES ? [...sites, point] : sites)
+  function updateProposedSites(update: (sites: ProposedSite[]) => ProposedSite[]) {
+    const current = latestSites.current
+    const updated = { ...current, [name]: update(current[name] ?? []) }
+    latestSites.current = updated
+    setSitesByCity(updated)
+    try {
+      localStorage.setItem(SITE_STORAGE_KEY, JSON.stringify(updated))
+      setStorageError(false)
+    } catch {
+      setStorageError(true)
+    }
+  }
+
+  function addProposedSite([latitude, longitude]: Coordinates) {
+    updateProposedSites(sites => {
+      if (sites.length >= MAX_PROPOSED_SITES) return sites
+      return [...sites, {
+        id: crypto.randomUUID(),
+        latitude,
+        longitude,
+        name: '',
+        evidence: '',
+        installationCost: '',
+        shortlisted: false,
+      }]
+    })
     setPickingSite(false)
+  }
+
+  function compareSite(site: ProposedSite) {
+    const nearestKm = Math.min(...stations.map(station =>
+      calculateDistance(site.latitude, site.longitude, station.latitude, station.longitude),
+    ))
+    const remainingGaps = identifyCoverageGaps([...stations, site], centre).length
+    return { nearestKm, coverageGain: baselineGaps - remainingGaps }
   }
 
   const handleStartSession = (station: ChargingStation) => {
@@ -214,15 +251,15 @@ export function ChargingMap() {
           />
           <MapUpdater centre={centre} selectedStation={selectedStation} />
           {pickingSite && <SitePicker onPick={addProposedSite} />}
-          {proposedSites.map(([latitude, longitude], index) => (
+          {proposedSites.map(({ id, latitude, longitude, name: siteName }, index) => (
             <CircleMarker
-              key={index}
+              key={id}
               center={[latitude, longitude]}
               radius={8}
               bubblingMouseEvents={false}
               pathOptions={{ color: '#6d28d9', fillColor: '#a78bfa', fillOpacity: 1 }}
             >
-              <Tooltip permanent direction="top">Site {index + 1}</Tooltip>
+              <Tooltip permanent direction="top">{siteName || `Site ${index + 1}`}</Tooltip>
             </CircleMarker>
           ))}
           {stations.map((station) => (
@@ -304,7 +341,6 @@ export function ChargingMap() {
             onChange={(event) => {
               setCityIndex(Number(event.target.value))
               setSelectedStation(null)
-              setProposedSites([])
               setPickingSite(false)
             }}
             disabled={activeSession !== null}
@@ -466,37 +502,17 @@ export function ChargingMap() {
                     Use city centre
                   </button>
                 )}
-                {proposedSites.length > 0 && (
-                  <button
-                    onClick={() => {
-                      setProposedSites([])
-                      setPickingSite(false)
-                    }}
-                    className="text-sm text-violet-800 underline"
-                  >
-                    Clear sites
-                  </button>
-                )}
               </div>
               {pickingSite && <p role="status" className="text-sm">Click the map to place a proposed charger.</p>}
               <p className="text-sm">Baseline coverage: {5 - baselineGaps} of 5 sample points.</p>
-              {proposedSites.length > 0 && (
-                <ul className="space-y-2" aria-label="Proposed sites">
-                  {proposedSites.map(([latitude, longitude], index) => {
-                    const nearest = Math.min(...stations.map(station =>
-                      calculateDistance(latitude, longitude, station.latitude, station.longitude),
-                    ))
-                    const remainingGaps = identifyCoverageGaps([...stations, { latitude, longitude }], centre).length
-                    return (
-                      <li key={index} className="rounded-md bg-violet-50 p-2 text-sm">
-                        <strong>Site {index + 1}</strong>
-                        <div>{nearest.toFixed(2)} km from the nearest sample charger</div>
-                        <div>{5 - remainingGaps} of 5 sample points covered (+{baselineGaps - remainingGaps})</div>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
+              <p className="text-sm text-gray-600">Site details are saved in this browser. Export a shortlist to share it.</p>
+              <SiteShortlist
+                city={name}
+                sites={proposedSites}
+                compare={compareSite}
+                onUpdate={updateProposedSites}
+                storageError={storageError}
+              />
             </section>
             <UrbanPlanningAnalysis stations={stations} centre={centre} />
           </div>
